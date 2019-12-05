@@ -1,0 +1,15 @@
+[package]
+name = "lis3dsh"
+version = "0.1.0"
+authors = ["Joseph Gerber <josephbgerber@gmail.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+keywords = ["lis3dsh", "microchip", "driver", "adc", "embedded-hal-driver"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nb = "0.1.2"
+embedded-hal = "0.2"
+bitflags = "1.0"
