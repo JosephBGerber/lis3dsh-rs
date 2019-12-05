@@ -6,6 +6,7 @@ edition = "2018"
 license = "MIT OR Apache-2.0"
 keywords = ["lis3dsh", "microchip", "driver", "adc", "embedded-hal-driver"]
 categories = ["embedded", "hardware-support", "no-std"]
+repository = "https://github.com/JosephBGerber/lis3dsh-rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
