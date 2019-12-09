@@ -30,9 +30,24 @@ pub enum Error<SPIE, CSE> {
 }
 
 /// Structure representing a LIS3DSH device, an embedded accelerometer
+#[derive(Copy, Clone)]
 pub struct LIS3DSH<Spi, Cs> {
     spi: Spi,
     cs: Cs,
+}
+
+unsafe impl<SPI, CS> Send for LIS3DSH<SPI, CS>
+where
+    SPI: Send,
+    CS: Send,
+{
+}
+
+unsafe impl<SPI, CS> Sync for LIS3DSH<SPI, CS>
+where
+    SPI: Sync,
+    CS: Sync,
+{
 }
 
 impl<SPI, CS, SPIE, CSE> LIS3DSH<SPI, CS>
