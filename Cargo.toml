@@ -11,6 +11,5 @@ repository = "https://github.com/JosephBGerber/lis3dsh-rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nb = "0.1.2"
 embedded-hal = "0.2"
-bitflags = "1.0"
+accelerometer = "0.10.0"

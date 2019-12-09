@@ -1,122 +1,133 @@
 #![no_std]
-#![allow(dead_code)]
-// ![deny(missing_docs)]
-
-#[macro_use]
-extern crate bitflags;
+#![allow(non_camel_case_types)]
 
 use embedded_hal as hal;
-
 use hal::blocking::spi::{Transfer, Write};
 use hal::digital::v2::OutputPin;
 
-pub struct Measurement {
-    x: u16,
-    y: u16,
-    z: u16,
-}
+use accelerometer::{self, Accelerometer, I16x3};
 
-pub const STATUS_ADDR: u8 = 0x27;
+pub mod register;
+pub use register::Register;
 
-bitflags! {
-    struct STATUS: u8 {
-        const XDA = 0b0000_0001;
-        const YDA = 0b0000_0010;
-        const ZDA = 0b0000_0100;
-        const ZYXDA = 0b0000_1000;
-        const XOR = 0b0001_0000;
-        const YOR = 0b0010_0000;
-        const ZOR = 0b0100_0000;
-        const ZYXOR = 0b1000_0000;
+fn cast(value: i16) -> u8 {
+    if value.abs() > i16::from(core::u8::MAX) {
+        if value.is_positive() {
+            return core::u8::MAX;
+        } else {
+            return core::u8::MIN;
+        }
     }
+
+    f32::from(value) as i8 as u8
 }
 
-pub const OUT_X_L: u8 = 0x28;
-pub const OUT_X_H: u8 = 0x29;
-pub const OUT_Y_L: u8 = 0x2A;
-pub const OUT_Y_H: u8 = 0x2B;
-pub const OUT_Z_L: u8 = 0x2C;
-pub const OUT_Z_H: u8 = 0x2D;
-
+// Error type wrapping all possible Spi and Output errors
 #[derive(Debug)]
-pub enum Error<SpiE, CsE> {
-    Spi(SpiE),
-    Cs(CsE),
+pub enum Error<SPIE, CSE> {
+    SPI(SPIE),
+    CS(CSE),
 }
 
-struct LIS3DSH<Spi, Cs> {
+/// Structure representing a LIS3DSH device, an embedded accelerometer
+pub struct LIS3DSH<Spi, Cs> {
     spi: Spi,
     cs: Cs,
 }
 
-impl<Spi, Cs, SpiE, CsE> LIS3DSH<Spi, Cs>
+impl<SPI, CS, SPIE, CSE> LIS3DSH<SPI, CS>
 where
-    Spi: Write<u8, Error = SpiE> + Transfer<u8, Error = SpiE>,
-    Cs: OutputPin<Error = CsE>,
+    SPI: Write<u8, Error = SPIE> + Transfer<u8, Error = SPIE>,
+    CS: OutputPin<Error = CSE>,
+    SPIE: core::fmt::Debug,
+    CSE: core::fmt::Debug,
 {
-    pub fn new(spi: Spi, cs: Cs) -> Self {
-        LIS3DSH { spi, cs }
+    /// Create a new LIS3DSH struct. Chip select is set high and
+    /// x, y, and z axes are activated.
+    ///
+    /// Default ORD (output data rate) is 100hz
+    pub fn new(spi: SPI, cs: CS) -> Result<Self, Error<SPIE, CSE>> {
+        let mut accelerometer = LIS3DSH { spi, cs };
+
+        accelerometer.cs.set_high().map_err(Error::CS)?;
+
+        accelerometer.write_register(Register::CTRL_REG4, 0x67)?;
+
+        Ok(accelerometer)
     }
 
-    pub fn free(self) -> (Spi, Cs) {
+    /// Free all owned peripherals
+    pub fn free(self) -> (SPI, CS) {
         (self.spi, self.cs)
     }
 
-    pub fn read_register(&mut self, address: u8) -> Result<u8, Error<SpiE, CsE>> {
-        let data = [address];
-
-        if let Err(e) = self.cs.set_low() {
-            return Err(Error::Cs(e));
-        };
-        if let Err(e) = self.spi.transfer(&mut [address]) {
-            return Err(Error::Spi(e));
-        }
-        if let Err(e) = self.cs.set_high() {
-            return Err(Error::Cs(e));
-        };
-
-        Ok(data[0])
+    /// Activates an active high interrupt on INT1 when new data is ready
+    pub fn enable_dr_interrupt(&mut self) -> Result<(), Error<SPIE, CSE>> {
+        self.write_register(Register::CTRL_REG3, 0xC8)
     }
 
-    pub fn write_register(&mut self, address: u8, value: u8) -> Result<(), Error<SpiE, CsE>> {
-        let data = [address | 0x80, value];
+    /// Read a value from an arbitrary register of the LIS3DSH
+    pub fn read_register(&mut self, register: Register) -> Result<u8, Error<SPIE, CSE>> {
+        let mut buffer = [register as u8 | 0x80, 0x00];
+        self.cs.set_low().map_err(Error::CS)?;
+        self.spi.transfer(&mut buffer).map_err(Error::SPI)?;
+        self.cs.set_low().map_err(Error::CS)?;
 
-        if let Err(e) = self.cs.set_low() {
-            return Err(Error::Cs(e));
-        };
-        if let Err(e) = self.spi.write(&data) {
-            return Err(Error::Spi(e));
-        }
-        if let Err(e) = self.cs.set_high() {
-            return Err(Error::Cs(e));
-        };
+        Ok(buffer[1])
+    }
+
+    /// Write a value to an arbitray register of the LIS3DSH
+    pub fn write_register(&mut self, register: Register, word: u8) -> Result<(), Error<SPIE, CSE>> {
+        let buffer = [register as u8, word];
+        self.cs.set_low().map_err(Error::CS)?;
+        self.spi.write(&buffer).map_err(Error::SPI)?;
+        self.cs.set_low().map_err(Error::CS)?;
 
         Ok(())
     }
 
-    pub fn read_measurement(&mut self) -> Result<Measurement, Error<SpiE, CsE>> {
-        loop {
-            let status = match self.read_register(STATUS_ADDR) {
-                Ok(value) => value,
-                Err(e) => return Err(e),
-            };
+    /// Calibrates the LIS3DSH device
+    ///
+    /// * `accleration` - A measurement of accleration during zero accleration
+    pub fn calibrate_acceleration(&mut self, accleration: I16x3) -> Result<(), Error<SPIE, CSE>> {
+        self.write_register(Register::OFF_X, cast(accleration.x / 32))?;
+        self.write_register(Register::OFF_Y, cast(accleration.y / 32))?;
+        self.write_register(Register::OFF_Z, cast(accleration.z / 32))?;
 
-            if STATUS::from_bits(status).unwrap().contains(STATUS::ZYXDA) {
+        Ok(())
+    }
+}
+
+impl<SPI, CS, SPIE, CSE> Accelerometer<I16x3> for LIS3DSH<SPI, CS>
+where
+    SPI: Write<u8, Error = SPIE> + Transfer<u8, Error = SPIE>,
+    CS: OutputPin<Error = CSE>,
+    SPIE: core::fmt::Debug,
+    CSE: core::fmt::Debug,
+{
+    type Error = Error<SPIE, CSE>;
+
+    /// Read acceleration data
+    fn acceleration(&mut self) -> Result<I16x3, Error<SPIE, CSE>> {
+        loop {
+            let status = self.read_register(Register::STATUS)?;
+
+            if status & (1 << 3) > 0 {
                 break;
             }
         }
 
-        let out_x_l = self.read_register(OUT_X_L)?;
-        let out_x_h = self.read_register(OUT_X_H)?;
-        let out_y_l = self.read_register(OUT_Y_L)?;
-        let out_y_h = self.read_register(OUT_Y_H)?;
-        let out_z_l = self.read_register(OUT_Z_L)?;
-        let out_z_h = self.read_register(OUT_Z_H)?;
+        let out_x_l = self.read_register(Register::OUT_X_L)?;
+        let out_x_h = self.read_register(Register::OUT_X_H)?;
+        let out_y_l = self.read_register(Register::OUT_Y_L)?;
+        let out_y_h = self.read_register(Register::OUT_Y_H)?;
+        let out_z_l = self.read_register(Register::OUT_Z_L)?;
+        let out_z_h = self.read_register(Register::OUT_Z_H)?;
 
-        let x = (u16::from(out_x_h)) << 8 | u16::from(out_x_l);
-        let y = (u16::from(out_y_h)) << 8 | u16::from(out_y_l);
-        let z = (u16::from(out_z_h)) << 8 | u16::from(out_z_l);
+        let x = (i16::from(out_x_h)) << 8 | i16::from(out_x_l);
+        let y = (i16::from(out_y_h)) << 8 | i16::from(out_y_l);
+        let z = (i16::from(out_z_h)) << 8 | i16::from(out_z_l);
 
-        Ok(Measurement { x, y, z })
+        Ok(I16x3::new(x, y, z))
     }
 }
