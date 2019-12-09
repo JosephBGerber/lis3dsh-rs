@@ -5,7 +5,7 @@ use embedded_hal as hal;
 use hal::blocking::spi::{Transfer, Write};
 use hal::digital::v2::OutputPin;
 
-use accelerometer::{self, Accelerometer, I16x3};
+pub use accelerometer::{Accelerometer, I16x3};
 
 pub mod register;
 pub use register::Register;
