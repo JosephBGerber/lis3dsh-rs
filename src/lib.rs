@@ -79,7 +79,7 @@ where
     /// Activates an active high interrupt on INT1 when new data is ready
     pub fn enable_dr_interrupt(&mut self) -> Result<(), Error<SPIE, CSE>> {
         let register = self.read_register(Register::CTRL_REG3)?;
-        self.write_register(Register::CTRL_REG3, register | 0x88)
+        self.write_register(Register::CTRL_REG3, register | 0xC8)
     }
 
     /// Read a value from an arbitrary register of the LIS3DSH
