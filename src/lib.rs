@@ -27,6 +27,7 @@ fn cast(value: i16) -> u8 {
 pub enum Error<SPIE, CSE> {
     SPI(SPIE),
     CS(CSE),
+    WouldBlock,
 }
 
 /// Structure representing a LIS3DSH device, an embedded accelerometer
@@ -125,12 +126,10 @@ where
 
     /// Read acceleration data
     fn acceleration(&mut self) -> Result<I16x3, Error<SPIE, CSE>> {
-        loop {
-            let status = self.read_register(Register::STATUS)?;
+        let status = self.read_register(Register::STATUS)?;
 
-            if status & (1 << 3) > 0 {
-                break;
-            }
+        if status & (1 << 3) == 0 {
+            return Err(Error::WouldBlock);
         }
 
         let out_x_l = self.read_register(Register::OUT_X_L)?;
