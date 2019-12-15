@@ -12,4 +12,4 @@ repository = "https://github.com/JosephBGerber/lis3dsh-rs"
 
 [dependencies]
 embedded-hal = "0.2"
-accelerometer = "0.10.0"
+accelerometer = {git = "https://github.com/JosephBGerber/accelerometer.rs.git",  branch = "develop"}
